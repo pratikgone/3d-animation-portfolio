@@ -52,6 +52,9 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
   const starsRef = useRef<THREE.Points | null>(null);
   const warpLinesRef = useRef<THREE.LineSegments | null>(null);
   const nebulaGroupRef = useRef<THREE.Group | null>(null);
+  const spiralGalaxyRef = useRef<THREE.Points | null>(null);
+  const cometsRef = useRef<{ mesh: THREE.Group; speed: number; direction: THREE.Vector3 }[]>([]);
+  const solarFlaresRef = useRef<{ points: THREE.Points; velocities: THREE.Vector3[] } | null>(null);
 
   // Map of planet pivots and meshes
   const planetMeshesRef = useRef<Map<PlanetId, { pivot: THREE.Group; mesh: THREE.Mesh; data: any }>>(new Map());
@@ -140,6 +143,55 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     sunMesh.userData = { id: 'sun', name: 'The Sun' };
     systemPivot.add(sunMesh);
     sunMeshRef.current = sunMesh;
+
+    // Sun Outer Pulsating Corona Aura Shell
+    const coronaGeo = new THREE.SphereGeometry(2.35, 32, 16);
+    const coronaMat = new THREE.MeshBasicMaterial({
+      color: 0xfbbf24,
+      transparent: true,
+      opacity: 0.3,
+      blending: THREE.AdditiveBlending,
+      side: THREE.BackSide,
+    });
+    const sunCorona = new THREE.Mesh(coronaGeo, coronaMat);
+    sunMesh.add(sunCorona);
+    sunCoronaRef.current = sunCorona;
+
+    // Solar Flares & Erupting Plasma Particles
+    const flareCount = 160;
+    const flareGeo = new THREE.BufferGeometry();
+    const flarePositions = new Float32Array(flareCount * 3);
+    const flareVelocities: THREE.Vector3[] = [];
+
+    for (let f = 0; f < flareCount; f++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 2.0 + Math.random() * 0.4;
+
+      flarePositions[f * 3] = r * Math.sin(phi) * Math.cos(theta);
+      flarePositions[f * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+      flarePositions[f * 3 + 2] = r * Math.cos(phi);
+
+      flareVelocities.push(
+        new THREE.Vector3(
+          Math.sin(phi) * Math.cos(theta),
+          Math.sin(phi) * Math.sin(theta),
+          Math.cos(phi)
+        ).multiplyScalar(0.006 + Math.random() * 0.008)
+      );
+    }
+
+    flareGeo.setAttribute('position', new THREE.BufferAttribute(flarePositions, 3));
+    const flareMat = new THREE.PointsMaterial({
+      color: 0xf97316,
+      size: 0.12,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+    });
+    const solarFlares = new THREE.Points(flareGeo, flareMat);
+    systemPivot.add(solarFlares);
+    solarFlaresRef.current = { points: solarFlares, velocities: flareVelocities };
 
     // Register Sun in PlanetMap
     planetMeshesRef.current.set('sun', {
@@ -508,7 +560,110 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     }
 
     // ==========================================
-    // 8. INTERACTIVE MOUSE & RAYCASTING
+    // 8. MILKY WAY SPIRAL GALAXY DUST ARMS
+    // ==========================================
+    const spiralParticles = 7000;
+    const spiralGeo = new THREE.BufferGeometry();
+    const spiralPositions = new Float32Array(spiralParticles * 3);
+    const spiralColors = new Float32Array(spiralParticles * 3);
+    const branches = 3;
+
+    for (let i = 0; i < spiralParticles; i++) {
+      const r = Math.pow(Math.random(), 1.7) * 160 + 12;
+      const branchAngle = ((i % branches) * 2 * Math.PI) / branches;
+      const spinAngle = r * 0.07;
+
+      const randomX = (Math.pow(Math.random(), 3) * (Math.random() < 0.5 ? 1 : -1) * 0.3) * r;
+      const randomY = (Math.pow(Math.random(), 3) * (Math.random() < 0.5 ? 1 : -1) * 0.25) * r;
+      const randomZ = (Math.pow(Math.random(), 3) * (Math.random() < 0.5 ? 1 : -1) * 0.3) * r;
+
+      const x = Math.cos(branchAngle + spinAngle) * r + randomX;
+      const y = randomY + (Math.random() - 0.5) * 10;
+      const z = Math.sin(branchAngle + spinAngle) * r + randomZ;
+
+      spiralPositions[i * 3] = x;
+      spiralPositions[i * 3 + 1] = y - 30;
+      spiralPositions[i * 3 + 2] = z - 70;
+
+      const mixRatio = r / 160;
+      const coreColor = new THREE.Color(0xfbbf24);
+      const midColor = new THREE.Color(0xd946ef);
+      const outerColor = new THREE.Color(0x06b6d4);
+      const finalColor =
+        mixRatio < 0.35
+          ? coreColor.clone().lerp(midColor, mixRatio / 0.35)
+          : midColor.clone().lerp(outerColor, (mixRatio - 0.35) / 0.65);
+
+      spiralColors[i * 3] = finalColor.r;
+      spiralColors[i * 3 + 1] = finalColor.g;
+      spiralColors[i * 3 + 2] = finalColor.b;
+    }
+
+    spiralGeo.setAttribute('position', new THREE.BufferAttribute(spiralPositions, 3));
+    spiralGeo.setAttribute('color', new THREE.BufferAttribute(spiralColors, 3));
+
+    const spiralMat = new THREE.PointsMaterial({
+      size: 0.85,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.65,
+      blending: THREE.AdditiveBlending,
+    });
+    const spiralGalaxy = new THREE.Points(spiralGeo, spiralMat);
+    spiralGalaxy.rotation.x = 0.5;
+    scene.add(spiralGalaxy);
+    spiralGalaxyRef.current = spiralGalaxy;
+
+    // ==========================================
+    // 9. DYNAMIC COMETS & METEOR SHOWERS
+    // ==========================================
+    const cometsGroup = new THREE.Group();
+    scene.add(cometsGroup);
+    cometsRef.current = [];
+
+    for (let c = 0; c < 5; c++) {
+      const cometPivot = new THREE.Group();
+
+      const headGeo = new THREE.SphereGeometry(0.18, 12, 8);
+      const headMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+      const head = new THREE.Mesh(headGeo, headMat);
+      cometPivot.add(head);
+
+      const tailCount = 40;
+      const tailGeo = new THREE.BufferGeometry();
+      const tailPos = new Float32Array(tailCount * 3);
+      for (let t = 0; t < tailCount; t++) {
+        tailPos[t * 3] = (Math.random() - 0.5) * 0.15;
+        tailPos[t * 3 + 1] = (Math.random() - 0.5) * 0.15;
+        tailPos[t * 3 + 2] = t * 0.18;
+      }
+      tailGeo.setAttribute('position', new THREE.BufferAttribute(tailPos, 3));
+      const tailMat = new THREE.PointsMaterial({
+        color: 0x7dd3fc,
+        size: 0.22,
+        transparent: true,
+        opacity: 0.8,
+        blending: THREE.AdditiveBlending,
+      });
+      const tail = new THREE.Points(tailGeo, tailMat);
+      cometPivot.add(tail);
+
+      cometPivot.position.set(
+        (Math.random() - 0.5) * 140,
+        Math.random() * 40 + 10,
+        (Math.random() - 0.5) * 100 - 30
+      );
+
+      cometsGroup.add(cometPivot);
+      cometsRef.current.push({
+        mesh: cometPivot,
+        speed: 16 + Math.random() * 20,
+        direction: new THREE.Vector3(-1, -0.35, 0.4).normalize(),
+      });
+    }
+
+    // ==========================================
+    // 10. INTERACTIVE MOUSE & RAYCASTING
     // ==========================================
     const handleMouseMove = (e: MouseEvent) => {
       const { innerWidth, innerHeight } = window;
@@ -828,6 +983,50 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
           warpLinesRef.current.rotation.z += delta * 0.5;
         }
       }
+
+      // Sun Corona pulsation & Solar Flares emission animation
+      if (sunCoronaRef.current) {
+        const s = 1.0 + Math.sin(time * 0.003) * 0.05;
+        sunCoronaRef.current.scale.set(s, s, s);
+      }
+
+      if (solarFlaresRef.current) {
+        const { points, velocities } = solarFlaresRef.current;
+        const posAttr = points.geometry.attributes.position as THREE.BufferAttribute;
+        const positions = posAttr.array as Float32Array;
+
+        for (let f = 0; f < velocities.length; f++) {
+          positions[f * 3] += velocities[f].x;
+          positions[f * 3 + 1] += velocities[f].y;
+          positions[f * 3 + 2] += velocities[f].z;
+
+          const dist = Math.hypot(positions[f * 3], positions[f * 3 + 1], positions[f * 3 + 2]);
+          if (dist > 3.5) {
+            const dir = velocities[f].clone().normalize();
+            positions[f * 3] = dir.x * 2.0;
+            positions[f * 3 + 1] = dir.y * 2.0;
+            positions[f * 3 + 2] = dir.z * 2.0;
+          }
+        }
+        posAttr.needsUpdate = true;
+      }
+
+      // Milky Way Spiral Galaxy slow rotation
+      if (spiralGalaxyRef.current) {
+        spiralGalaxyRef.current.rotation.y += delta * 0.015 * speedMult;
+      }
+
+      // Dynamic Comets & Meteor streaks
+      cometsRef.current.forEach((comet) => {
+        comet.mesh.position.addScaledVector(comet.direction, comet.speed * delta * speedMult);
+        if (comet.mesh.position.x < -120 || comet.mesh.position.y < -50 || comet.mesh.position.z > 80) {
+          comet.mesh.position.set(
+            120 + Math.random() * 40,
+            Math.random() * 40 + 20,
+            -60 - Math.random() * 50
+          );
+        }
+      });
 
       // Drag inertia
       if (systemPivotRef.current) {
