@@ -629,11 +629,113 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
       }
     };
 
+    // Touch interaction refs for Mobile Pinch-to-Zoom & Drag
+    let prevTouchDist: number | null = null;
+    let touchStartPos = { x: 0, y: 0, time: 0 };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'BUTTON' ||
+        target.tagName === 'INPUT' ||
+        target.closest('#viewport-hud-toolbar') ||
+        target.closest('#main-navigation')
+      ) return;
+
+      if (e.touches.length === 1) {
+        isDraggingRef.current = true;
+        prevMousePosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        touchStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
+
+        // Update raycasting vector for tap selection
+        const { innerWidth, innerHeight } = window;
+        mouseVectorRef.current.x = (e.touches[0].clientX / innerWidth) * 2 - 1;
+        mouseVectorRef.current.y = -(e.touches[0].clientY / innerHeight) * 2 + 1;
+      } else if (e.touches.length === 2) {
+        isDraggingRef.current = false;
+        const dist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        prevTouchDist = dist;
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'BUTTON' ||
+        target.tagName === 'INPUT' ||
+        target.closest('#viewport-hud-toolbar') ||
+        target.closest('#main-navigation')
+      ) return;
+
+      if (e.touches.length === 1 && isDraggingRef.current) {
+        const deltaX = e.touches[0].clientX - prevMousePosRef.current.x;
+        const deltaY = e.touches[0].clientY - prevMousePosRef.current.y;
+        dragRotationRef.current.y += deltaX * 0.007;
+        dragRotationRef.current.x += deltaY * 0.007;
+        prevMousePosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      } else if (e.touches.length === 2 && prevTouchDist !== null) {
+        const newDist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        const deltaDist = newDist - prevTouchDist;
+
+        if (Math.abs(deltaDist) > 1.5) {
+          if (deltaDist > 0) {
+            // Pinch spreading -> ZOOM IN
+            zoomFactorRef.current = Math.max(0.2, zoomFactorRef.current - 0.04);
+          } else {
+            // Pinch closing -> ZOOM OUT
+            zoomFactorRef.current = Math.min(2.8, zoomFactorRef.current + 0.04);
+            const currentFocus = focusedBodyRef.current;
+            if (zoomFactorRef.current >= 2.0 && onSelectPlanet && currentFocus !== 'all') {
+              onSelectPlanet('all');
+              zoomFactorRef.current = 1.0;
+            }
+          }
+          prevTouchDist = newDist;
+        }
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) {
+        const touchDuration = Date.now() - touchStartPos.time;
+        if (isDraggingRef.current && touchDuration < 280) {
+          const distX = Math.abs(prevMousePosRef.current.x - touchStartPos.x);
+          const distY = Math.abs(prevMousePosRef.current.y - touchStartPos.y);
+          if (distX < 12 && distY < 12 && cameraRef.current && sceneRef.current) {
+            raycasterRef.current.setFromCamera(mouseVectorRef.current, cameraRef.current);
+            const testMeshes: THREE.Mesh[] = [];
+            planetMeshesRef.current.forEach((val) => testMeshes.push(val.mesh));
+            const intersects = raycasterRef.current.intersectObjects(testMeshes, false);
+            if (intersects.length > 0) {
+              const hit = intersects[0].object;
+              const id = hit.userData?.id as PlanetId;
+              if (id && onSelectPlanet) {
+                onSelectPlanet(id);
+              }
+            }
+          }
+        }
+        isDraggingRef.current = false;
+        prevTouchDist = null;
+      }
+    };
+
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mousedown', handleMouseDown);
     window.addEventListener('mouseup', handleMouseUp);
     window.addEventListener('click', handleClick);
     window.addEventListener('wheel', handleWheel, { passive: false });
+
+    // Touch Event Listeners for Mobile Zoom & Orbit Rotation
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
 
     // Resize Handler
     const handleResize = () => {
@@ -759,10 +861,11 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
         }
       } else {
         // Panoramic system view - gentle tilt based on scroll progress and mouse
-        const camScrollY = 16 - scrollProgress * 6;
-        const camScrollZ = 28 - scrollProgress * 8;
+        const isMobile = window.innerWidth < 768;
+        const camScrollY = (isMobile ? 22 : 16) - scrollProgress * (isMobile ? 12 : 6);
+        const camScrollZ = ((isMobile ? 36 : 28) - scrollProgress * (isMobile ? 16 : 8)) * zoomFactorRef.current;
         targetPos = new THREE.Vector3(
-          mouseRef.current.x * 3.5,
+          mouseRef.current.x * (isMobile ? 2.0 : 3.5),
           camScrollY + mouseRef.current.y * 2.0,
           camScrollZ
         );
@@ -787,6 +890,9 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
       window.removeEventListener('mouseup', handleMouseUp);
       window.removeEventListener('click', handleClick);
       window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
     };
