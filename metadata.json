@@ -1,0 +1,6 @@
+{
+  "name": "3D Animation Portfolio",
+  "description": "Interactive 3D galaxy portfolio featuring Three.js solar system animation, orbiting planets, starry nebulae, and creative developer showcase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
