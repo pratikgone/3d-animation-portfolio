@@ -53,8 +53,21 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
   const warpLinesRef = useRef<THREE.LineSegments | null>(null);
   const nebulaGroupRef = useRef<THREE.Group | null>(null);
   const spiralGalaxyRef = useRef<THREE.Points | null>(null);
-  const cometsRef = useRef<{ mesh: THREE.Group; speed: number; direction: THREE.Vector3 }[]>([]);
   const solarFlaresRef = useRef<{ points: THREE.Points; velocities: THREE.Vector3[] } | null>(null);
+  const meteorsRef = useRef<
+    {
+      line: THREE.Line;
+      geometry: THREE.BufferGeometry;
+      positions: Float32Array;
+      startPos: THREE.Vector3;
+      dir: THREE.Vector3;
+      speed: number;
+      progress: number;
+      maxProgress: number;
+      delay: number;
+      material: THREE.LineBasicMaterial;
+    }[]
+  >([]);
 
   // Map of planet pivots and meshes
   const planetMeshesRef = useRef<Map<PlanetId, { pivot: THREE.Group; mesh: THREE.Mesh; data: any }>>(new Map());
@@ -157,6 +170,30 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     sunMesh.add(sunCorona);
     sunCoronaRef.current = sunCorona;
 
+    // Procedural Circular Soft Star/Orb Texture (Eliminates square WebGL points)
+    const createStarGlowTexture = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 64;
+      canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+
+      const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+      gradient.addColorStop(0.25, 'rgba(255, 255, 255, 0.85)');
+      gradient.addColorStop(0.55, 'rgba(160, 215, 255, 0.45)');
+      gradient.addColorStop(1.0, 'rgba(0, 0, 0, 0.0)');
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 64, 64);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.needsUpdate = true;
+      return texture;
+    };
+
+    const starGlowTex = createStarGlowTexture();
+
     // Solar Flares & Erupting Plasma Particles
     const flareCount = 160;
     const flareGeo = new THREE.BufferGeometry();
@@ -184,9 +221,12 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     flareGeo.setAttribute('position', new THREE.BufferAttribute(flarePositions, 3));
     const flareMat = new THREE.PointsMaterial({
       color: 0xf97316,
-      size: 0.12,
+      size: 0.45,
+      map: starGlowTex || undefined,
       transparent: true,
       opacity: 0.85,
+      alphaTest: 0.01,
+      depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
     const solarFlares = new THREE.Points(flareGeo, flareMat);
@@ -494,10 +534,13 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
 
     const starMat = new THREE.PointsMaterial({
-      size: 0.65,
+      size: 1.8,
+      map: starGlowTex || undefined,
       vertexColors: true,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.85,
+      alphaTest: 0.01,
+      depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
     const stars = new THREE.Points(starGeo, starMat);
@@ -603,10 +646,13 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     spiralGeo.setAttribute('color', new THREE.BufferAttribute(spiralColors, 3));
 
     const spiralMat = new THREE.PointsMaterial({
-      size: 0.85,
+      size: 2.2,
+      map: starGlowTex || undefined,
       vertexColors: true,
       transparent: true,
       opacity: 0.65,
+      alphaTest: 0.01,
+      depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
     const spiralGalaxy = new THREE.Points(spiralGeo, spiralMat);
@@ -615,50 +661,56 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
     spiralGalaxyRef.current = spiralGalaxy;
 
     // ==========================================
-    // 9. DYNAMIC COMETS & METEOR SHOWERS
+    // 9. ULTRA-REALISTIC SHOOTING METEOR SHOWER (FALLING STARS)
     // ==========================================
-    const cometsGroup = new THREE.Group();
-    scene.add(cometsGroup);
-    cometsRef.current = [];
+    const meteorsGroup = new THREE.Group();
+    scene.add(meteorsGroup);
+    meteorsRef.current = [];
 
-    for (let c = 0; c < 5; c++) {
-      const cometPivot = new THREE.Group();
+    const meteorCount = 8;
+    const ptsPerMeteor = 18;
 
-      const headGeo = new THREE.SphereGeometry(0.18, 12, 8);
-      const headMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
-      const head = new THREE.Mesh(headGeo, headMat);
-      cometPivot.add(head);
+    for (let m = 0; m < meteorCount; m++) {
+      const mGeo = new THREE.BufferGeometry();
+      const mPos = new Float32Array(ptsPerMeteor * 3);
+      const mCol = new Float32Array(ptsPerMeteor * 3);
 
-      const tailCount = 40;
-      const tailGeo = new THREE.BufferGeometry();
-      const tailPos = new Float32Array(tailCount * 3);
-      for (let t = 0; t < tailCount; t++) {
-        tailPos[t * 3] = (Math.random() - 0.5) * 0.15;
-        tailPos[t * 3 + 1] = (Math.random() - 0.5) * 0.15;
-        tailPos[t * 3 + 2] = t * 0.18;
+      for (let p = 0; p < ptsPerMeteor; p++) {
+        const alpha = Math.pow(1.0 - p / ptsPerMeteor, 1.8);
+        const col = new THREE.Color('#ffffff').lerp(new THREE.Color('#38bdf8'), 1 - alpha);
+        mCol[p * 3] = col.r * alpha;
+        mCol[p * 3 + 1] = col.g * alpha;
+        mCol[p * 3 + 2] = col.b * alpha;
       }
-      tailGeo.setAttribute('position', new THREE.BufferAttribute(tailPos, 3));
-      const tailMat = new THREE.PointsMaterial({
-        color: 0x7dd3fc,
-        size: 0.22,
+
+      mGeo.setAttribute('position', new THREE.BufferAttribute(mPos, 3));
+      mGeo.setAttribute('color', new THREE.BufferAttribute(mCol, 3));
+
+      const mMat = new THREE.LineBasicMaterial({
+        vertexColors: true,
         transparent: true,
-        opacity: 0.8,
+        opacity: 0,
         blending: THREE.AdditiveBlending,
       });
-      const tail = new THREE.Points(tailGeo, tailMat);
-      cometPivot.add(tail);
 
-      cometPivot.position.set(
-        (Math.random() - 0.5) * 140,
-        Math.random() * 40 + 10,
-        (Math.random() - 0.5) * 100 - 30
-      );
+      const mLine = new THREE.Line(mGeo, mMat);
+      meteorsGroup.add(mLine);
 
-      cometsGroup.add(cometPivot);
-      cometsRef.current.push({
-        mesh: cometPivot,
-        speed: 16 + Math.random() * 20,
-        direction: new THREE.Vector3(-1, -0.35, 0.4).normalize(),
+      const startX = 50 + Math.random() * 70;
+      const startY = 25 + Math.random() * 35;
+      const startZ = -20 - Math.random() * 50;
+
+      meteorsRef.current.push({
+        line: mLine,
+        geometry: mGeo,
+        material: mMat,
+        positions: mPos,
+        startPos: new THREE.Vector3(startX, startY, startZ),
+        dir: new THREE.Vector3(-1.25, -0.65, 0.45).normalize(),
+        speed: 38 + Math.random() * 45,
+        progress: 0,
+        maxProgress: 130 + Math.random() * 60,
+        delay: Math.random() * 3.5,
       });
     }
 
@@ -1016,15 +1068,46 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
         spiralGalaxyRef.current.rotation.y += delta * 0.015 * speedMult;
       }
 
-      // Dynamic Comets & Meteor streaks
-      cometsRef.current.forEach((comet) => {
-        comet.mesh.position.addScaledVector(comet.direction, comet.speed * delta * speedMult);
-        if (comet.mesh.position.x < -120 || comet.mesh.position.y < -50 || comet.mesh.position.z > 80) {
-          comet.mesh.position.set(
-            120 + Math.random() * 40,
-            Math.random() * 40 + 20,
-            -60 - Math.random() * 50
-          );
+      // Ultra-Realistic Shooting Meteors (Falling Stars)
+      meteorsRef.current.forEach((m) => {
+        if (m.delay > 0) {
+          m.delay -= delta;
+          m.material.opacity = 0;
+          return;
+        }
+
+        m.progress += delta * m.speed * speedMult;
+
+        const lifeRatio = m.progress / m.maxProgress;
+        let opacity = 1.0;
+        if (lifeRatio < 0.15) {
+          opacity = lifeRatio / 0.15;
+        } else if (lifeRatio > 0.75) {
+          opacity = (1.0 - lifeRatio) / 0.25;
+        }
+        m.material.opacity = Math.max(0, Math.min(1.0, opacity * 0.95));
+
+        const headPos = m.startPos.clone().addScaledVector(m.dir, m.progress);
+        const streakLength = 14.0;
+
+        for (let p = 0; p < 18; p++) {
+          const tailOffset = (p / 18) * streakLength;
+          const pPos = headPos.clone().addScaledVector(m.dir, -tailOffset);
+          m.positions[p * 3] = pPos.x;
+          m.positions[p * 3 + 1] = pPos.y;
+          m.positions[p * 3 + 2] = pPos.z;
+        }
+        m.geometry.attributes.position.needsUpdate = true;
+
+        if (m.progress >= m.maxProgress) {
+          m.progress = 0;
+          m.delay = 1.5 + Math.random() * 4.5;
+          const startX = 50 + Math.random() * 70;
+          const startY = 25 + Math.random() * 35;
+          const startZ = -20 - Math.random() * 50;
+          m.startPos.set(startX, startY, startZ);
+          m.speed = 38 + Math.random() * 45;
+          m.maxProgress = 130 + Math.random() * 60;
         }
       });
 
