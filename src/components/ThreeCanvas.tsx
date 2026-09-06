@@ -278,12 +278,19 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
       const geo = new THREE.SphereGeometry(p.radius, 64, 32);
       let mat: THREE.Material;
 
+      // Real NASA High-Res Image Texture Loader
+      const texLoader = new THREE.TextureLoader();
+      const realEarthMap = texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_atmos_2048.jpg');
+      const realEarthSpec = texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_specular_2048.jpg');
+      const realEarthClouds = texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_clouds_1024.png');
+      const realMoonMap = texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/moon_1024.jpg');
+
       if (p.id === 'earth') {
         mat = new THREE.MeshStandardMaterial({
-          map: createEarthTexture(),
-          roughnessMap: createEarthSpecularMap(),
-          roughness: p.roughness,
-          metalness: p.metalness,
+          map: realEarthMap || createEarthTexture(),
+          roughnessMap: realEarthSpec || createEarthSpecularMap(),
+          roughness: 0.45,
+          metalness: 0.1,
         });
       } else if (p.id === 'mars') {
         mat = new THREE.MeshStandardMaterial({
@@ -372,24 +379,24 @@ export const ThreeCanvas: React.FC<ThreeCanvasProps> = ({
       if (p.id === 'earth') {
         const cloudsGeo = new THREE.SphereGeometry(p.radius * 1.025, 48, 24);
         const cloudsMat = new THREE.MeshStandardMaterial({
-          map: createEarthCloudsTexture(),
+          map: realEarthClouds || createEarthCloudsTexture(),
           transparent: true,
-          opacity: 0.65,
+          opacity: 0.75,
           blending: THREE.AdditiveBlending,
         });
         const cloudsMesh = new THREE.Mesh(cloudsGeo, cloudsMat);
         planetMesh.add(cloudsMesh);
         earthCloudsRef.current = cloudsMesh;
 
-        // Orbiting Moon
+        // Orbiting Moon with Real NASA Moon Texture
         const moonPivot = new THREE.Group();
         planetMesh.add(moonPivot);
         moonPivotRef.current = moonPivot;
 
-        const moonGeo = new THREE.SphereGeometry(0.12, 16, 12);
+        const moonGeo = new THREE.SphereGeometry(0.12, 24, 16);
         const moonMat = new THREE.MeshStandardMaterial({
-          color: 0xcccccc,
-          roughness: 0.9,
+          map: realMoonMap,
+          roughness: 0.85,
           metalness: 0.05,
         });
         const moonMesh = new THREE.Mesh(moonGeo, moonMat);
